@@ -515,6 +515,7 @@ class FEIModel(PretrainModel):
     def __init__(self,
                  config: FEIConfig):
         super(FEIModel, self).__init__(config)
+        self.input_embedding = nn.Identity()
         self.mom_encoder = copy.deepcopy(self.encoder)
         self.mom_encoder.requires_grad_(False)
         self.mom_input_embedding = copy.deepcopy(self.input_embedding)
