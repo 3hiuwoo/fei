@@ -1,5 +1,6 @@
 from typing import Union, Callable, Iterable
 from torch.utils.data import Dataset, DataLoader
+from tqdm import tqdm
 from train.config import BaseConfig
 from os.path import join
 
@@ -173,7 +174,7 @@ class TrainableModule(nn.Module):
             self.logger.info("epoch: {}/{}".format(e + 1, epoch))
             epoch_start_time = time.time()
             batch_losses = []
-            for step, (x, y) in enumerate(self.train_loader):
+            for step, (x, y) in tqdm(enumerate(self.train_loader)):
                 self.iter_start(step)
                 if amp:
                     with autocast():
