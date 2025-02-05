@@ -19,7 +19,18 @@ class DefaultGenerator(Dataset):
         file_name = data_name.value
         raw_data = torch.load(os.path.join(file_name, "{}.pt".format(flag)))
         train_data = torch.load(os.path.join(file_name, "train.pt"))
+        
+        nchannel = min(raw_data["samples"].shape)
+        # make sure the channel dimension is the second dimension
+        if train_data["samples"].shape.index(nchannel) != 1:
+            train_data["samples"] = train_data["samples"].transpose(-1, -2)
+            raw_data["samples"] = raw_data["samples"].transpose(-1, -2)
 
+        length = raw_data["samples"].shape[-1]
+        if nchannel > 1:
+            train_data["samples"] = train_data["samples"].reshape(-1, 1, length)
+            raw_data["samples"] = raw_data["samples"].reshape(-1, 1, length)
+            
         # only single variable be considered
         if x_len > 0:
             mean = train_data["samples"][:, :1, :x_len].mean(dim=[0, 1])

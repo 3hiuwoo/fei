@@ -13,6 +13,9 @@ class DatasetName(Enum):
     GES = root + "/Gesture/"
     HAR = root + "/HAR/"
     SLE = root + "/SleepEEG/"
+    CHAPMAN = root + "/Chapman/"
+    PTB = root + "/PTB/"
+    PTBXL = root + "/PTB-XL/"
 
 
 def get_cls_num(dataset):

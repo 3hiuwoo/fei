@@ -5,16 +5,16 @@ class PretrainConfig(BaseConfig):
     def __init__(self):
         super(PretrainConfig, self).__init__()
         # ------------- Pre-train Configs ------------- #
-        self.pretrain_sample_length = 178  # sample length used in pre-training
-        self.pretrain_dataset = "SLE"  # available values are listed in DatasetEnum
-        self.pretrain_batch_size = 512  # batch length used in pre-training
+        self.pretrain_sample_length = 300  # sample length used in pre-training
+        self.pretrain_dataset = "CHAPMAN"  # available values are listed in DatasetEnum
+        self.pretrain_batch_size = 256  # batch length used in pre-training
         self.pretrain_num_workers = 0  # number of thread workers used in pre-training
         self.pretrain_epoch = 100  # maximum epoch
         self.pretrain_lr = 0.0002  # initial learning rate
         self.pretrain_sch = "step"  # 'step'/'warm'. Indicating the lr scheduler. Where 'step' is ExponentialLR
         self.pretrain_lr_gamma = 0.90  # The value of decay gamma. Only used when sch='step'.
         self.feature_fusion = "mean"  # How to fusion the temporal dimension of original feature. first/mean/all/last
-        self.encoder_size = "big"  # The size of 1D ResNet. 'tiny'/'small'/'normal'/'big'
+        self.encoder_size = 10  # The size of 1D ResNet. 'tiny'/'small'/'normal'/'big'
         self.pretrain_early_stop = 5  # Patience value of early stopping in pre-training
         self.dropout = 0  # Dropout is not used in FEI encoder.
         self.amp = False  # Weather to use Automatic Mixed Precision (AMP). It is useful when your RAM is small.

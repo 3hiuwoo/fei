@@ -31,7 +31,7 @@ def set_seed(seed):
 
 
 if __name__ == '__main__':
-    set_seed(2024)
+    set_seed(42)
     parser = argparse.ArgumentParser()
     parser.add_argument('--task_type', default='p', type=str,
                         help='\'p\'(pre-training) or \'f\'(fine-tuning) or \'l\'(linear evaluation)')
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', default=None, type=str,
                         help='The path to the pre-trained model. This is only used when \'--task=f\' or \'--task=l\'. '
                              'If not provided, the model will be fine-tuned with random initialization.')
-    parser.add_argument('--dataset', default='SLE', type=str,
+    parser.add_argument('--dataset', default='CHAPMAN', type=str,
                         help='Pretrain dataset: SLE (SleepEEG).\n '
                              'Classification dataset: GES/FDB/EMG/EPI/HAR/UCR.\n'
                              'Regression dataset: FD001/FD002/FD003/FD004/OPA/OPB/OPC')

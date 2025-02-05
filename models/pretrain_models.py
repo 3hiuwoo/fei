@@ -26,6 +26,8 @@ def get_hidden_dim(config: PretrainConfig):
         return 512
     elif config.encoder_size == "big":
         return 1024
+    elif config.encoder_size == 10:
+        return 320
     else:
         raise NotImplementedError("Encoder size: {} is not implemented.".format(config.encoder_size))
 
@@ -197,13 +199,162 @@ class ResNet(nn.Module):
         out = self.layer4(out)
         out = out.transpose(-1, -2)
         return out
+    
+    
+class SamePadConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, groups=1):
+        super().__init__()
+        self.receptive_field = (kernel_size - 1) * dilation + 1
+        padding = self.receptive_field // 2
+        self.conv = nn.Conv1d(
+            in_channels, out_channels, kernel_size,
+            padding=padding,
+            dilation=dilation,
+            groups=groups
+        )
+        self.remove = 1 if self.receptive_field % 2 == 0 else 0
+        
+    def forward(self, x):
+        out = self.conv(x)
+        if self.remove > 0:
+            out = out[:, :, : -self.remove]
+        return out
 
+
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation, final=False):
+        super().__init__()
+        self.conv1 = SamePadConv(in_channels, out_channels, kernel_size, dilation=dilation)
+        self.conv2 = SamePadConv(out_channels, out_channels, kernel_size, dilation=dilation)
+        self.projector = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels or final else None
+    
+    def forward(self, x):
+        residual = x if self.projector is None else self.projector(x)
+        x = F.gelu(x)
+        x = self.conv1(x)
+        x = F.gelu(x)
+        x = self.conv2(x)
+        return x + residual
+
+
+class DilatedConvEncoder(nn.Module):
+    def __init__(self, in_channels, channels, kernel_size):
+        super().__init__()
+        self.net = nn.Sequential(*[
+            ConvBlock(
+                channels[i-1] if i > 0 else in_channels,
+                channels[i],
+                kernel_size=kernel_size,
+                dilation=2**i,
+                final=(i == len(channels)-1)
+            )
+            for i in range(len(channels))
+        ])
+        
+    def forward(self, x):
+        return self.net(x)
+
+
+def generate_continuous_mask(B, T, C=None, n=5, l=0.1):
+    if C:
+        res = torch.full((B, T, C), True, dtype=torch.bool)
+    else:
+        res = torch.full((B, T), True, dtype=torch.bool)
+    if isinstance(n, float):
+        n = int(n * T)
+    n = max(min(n, T // 2), 1)
+    
+    if isinstance(l, float):
+        l = int(l * T)
+    l = max(l, 1)
+    
+    for i in range(B):
+        for _ in range(n):
+            t = np.random.randint(T-l+1)
+            if C:
+                # For a continuous timestamps, mask random half channels
+                index = np.random.choice(C, int(C/2), replace=False)
+                res[i, t:t + l, index] = False
+            else:
+                # For a continuous timestamps, mask all channels
+                res[i, t:t+l] = False
+    return res
+
+
+def generate_binomial_mask(B, T, C=None, p=0.5):
+    if C:
+        return torch.from_numpy(np.random.binomial(1, p, size=(B, T, C))).to(torch.bool)
+    else:
+        return torch.from_numpy(np.random.binomial(1, p, size=(B, T))).to(torch.bool)
+    
+
+class TSEncoder(nn.Module):
+    def __init__(self, input_dims, output_dims, hidden_dims=64, depth=10, mask_mode='binomial'):
+        super().__init__()
+        self.input_dims = input_dims  # Ci
+        self.output_dims = output_dims  # Co
+        self.hidden_dims = hidden_dims  # Ch
+        self.mask_mode = mask_mode
+        self.input_fc = nn.Linear(input_dims, hidden_dims)
+        self.feature_extractor = DilatedConvEncoder(
+            hidden_dims,
+            [hidden_dims] * depth + [output_dims],  # a list here
+            kernel_size=3
+        )
+        self.repr_dropout = nn.Dropout(p=0.1)
+        
+        
+    def forward(self, x, mask=None, pool=True):  # input dimension : B x O x Ci
+        x = self.input_fc(x)  # B x O x Ch (hidden_dims)
+        
+        # generate & apply mask, default is binomial
+        if mask is None:
+            # mask should only use in training phase
+            if self.training:
+                mask = self.mask_mode
+            else:
+                mask = 'all_true'
+        
+        if mask == 'binomial':
+            mask = generate_binomial_mask(x.size(0), x.size(1)).to(x.device)
+        elif mask == 'channel_binomial':
+            mask = generate_binomial_mask(x.size(0), x.size(1), x.size(2)).to(x.device)
+        elif mask == 'continuous':
+            mask = generate_continuous_mask(x.size(0), x.size(1)).to(x.device)
+        elif mask == 'channel_continuous':
+            mask = generate_continuous_mask(x.size(0), x.size(1), x.size(2)).to(x.device)
+        elif mask == 'all_true':
+            mask = x.new_full((x.size(0), x.size(1)), True, dtype=torch.bool)
+        elif mask == 'all_false':
+            mask = x.new_full((x.size(0), x.size(1)), False, dtype=torch.bool)
+        elif mask == 'mask_last':
+            mask = x.new_full((x.size(0), x.size(1)), True, dtype=torch.bool)
+            mask[:, -1] = False
+        else:
+            raise ValueError(f'\'{mask}\' is a wrong argument for mask function!')
+
+        # mask &= nan_masK
+        # ~ works as operator.invert
+        x[~mask] = 0
+
+        # conv encoder
+        x = x.transpose(1, 2)  # B x Ch x O
+        x = self.repr_dropout(self.feature_extractor(x))  # B x Co x O
+        
+        if pool:
+            x = F.max_pool1d(x, kernel_size=x.size(-1)).squeeze(-1)
+        else:
+            x = x.transpose(1, 2)  # B x O x Co
+        
+        return x
+        
 
 class PretrainModel(TrainableModule):
     def __init__(self, config: PretrainConfig, input_embedding=None):
         super(PretrainModel, self).__init__(config)
         self.input_embedding = DefaultInputEmbedding(config) if input_embedding is None else input_embedding
-        self.encoder = ResNet(config.encoder_size, stride=config.stride)
+        # self.encoder = ResNet(config.encoder_size, stride=config.stride)
+        self.encoder = TSEncoder(input_dims=1, output_dims=320, depth=config.encoder_size)
         self.feature_fusion = get_feature_fusion(config)
         self.hidden_dim = get_hidden_dim(config)
 
