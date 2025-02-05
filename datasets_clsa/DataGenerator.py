@@ -30,6 +30,8 @@ class DefaultGenerator(Dataset):
         if nchannel > 1:
             train_data["samples"] = train_data["samples"].reshape(-1, 1, length)
             raw_data["samples"] = raw_data["samples"].reshape(-1, 1, length)
+            train_data["labels"] = train_data["labels"].repeat(nchannel)
+            raw_data["labels"] = raw_data["labels"].repeat(nchannel)
             
         # only single variable be considered
         if x_len > 0:
